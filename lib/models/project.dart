@@ -6,6 +6,7 @@ class Project {
   final String name;
   final String? originalImagePath;
   final String? processedImagePath;
+  final String? displayImagePath;
   final String? thumbnailPath;
   final BackgroundType backgroundType;
   final int? solidColorValue;
@@ -19,6 +20,7 @@ class Project {
     required this.name,
     this.originalImagePath,
     this.processedImagePath,
+    this.displayImagePath,
     this.thumbnailPath,
     this.backgroundType = BackgroundType.transparent,
     this.solidColorValue,
@@ -35,6 +37,7 @@ class Project {
     String? name,
     String? originalImagePath,
     String? processedImagePath,
+    String? displayImagePath,
     String? thumbnailPath,
     BackgroundType? backgroundType,
     int? solidColorValue,
@@ -48,6 +51,7 @@ class Project {
       name: name ?? this.name,
       originalImagePath: originalImagePath ?? this.originalImagePath,
       processedImagePath: processedImagePath ?? this.processedImagePath,
+      displayImagePath: displayImagePath ?? this.displayImagePath,
       thumbnailPath: thumbnailPath ?? this.thumbnailPath,
       backgroundType: backgroundType ?? this.backgroundType,
       solidColorValue: solidColorValue ?? this.solidColorValue,
@@ -58,12 +62,16 @@ class Project {
     );
   }
 
+  String? get previewImagePath =>
+      thumbnailPath ?? displayImagePath ?? processedImagePath ?? originalImagePath;
+
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'name': name,
       'originalImagePath': originalImagePath,
       'processedImagePath': processedImagePath,
+      'displayImagePath': displayImagePath,
       'thumbnailPath': thumbnailPath,
       'backgroundType': backgroundType.index,
       'solidColorValue': solidColorValue,
@@ -80,6 +88,7 @@ class Project {
       name: json['name'] as String,
       originalImagePath: json['originalImagePath'] as String?,
       processedImagePath: json['processedImagePath'] as String?,
+      displayImagePath: json['displayImagePath'] as String?,
       thumbnailPath: json['thumbnailPath'] as String?,
       backgroundType: BackgroundType.values[json['backgroundType'] as int? ?? 0],
       solidColorValue: json['solidColorValue'] as int?,

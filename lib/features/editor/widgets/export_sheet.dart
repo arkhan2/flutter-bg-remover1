@@ -1,8 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../../core/services/file_download.dart';
 import '../../../core/services/image_processing_service.dart';
-import '../../../core/services/storage_service.dart';
 import '../../../providers/editor_provider.dart';
 
 class ExportSheet extends ConsumerStatefulWidget {
@@ -17,42 +18,67 @@ class _ExportSheetState extends ConsumerState<ExportSheet> {
   int _quality = 90;
   bool _isExporting = false;
 
+  String _mimeTypeFor(ExportFormat format) {
+    switch (format) {
+      case ExportFormat.png:
+        return 'image/png';
+      case ExportFormat.jpeg:
+        return 'image/jpeg';
+    }
+  }
+
+  Future<Uint8List?> _encodeCurrentImage() async {
+    final displayBytes = ref.read(editorProvider).currentImage.displayBytes;
+    if (displayBytes == null) {
+      _showError('No image to export');
+      return null;
+    }
+
+    final exportedBytes = await ImageProcessingService.exportImage(
+      imageBytes: displayBytes,
+      format: _selectedFormat,
+      quality: _quality,
+    );
+
+    if (exportedBytes == null) {
+      _showError('Failed to export image');
+    }
+    return exportedBytes;
+  }
+
+  String _filename() {
+    final extension = _selectedFormat.name;
+    return 'background_removed_${DateTime.now().millisecondsSinceEpoch}.$extension';
+  }
+
   Future<void> _exportAndSave() async {
     setState(() => _isExporting = true);
 
     try {
-      final editorState = ref.read(editorProvider);
-      final displayBytes = editorState.currentImage.displayBytes;
+      final exportedBytes = await _encodeCurrentImage();
+      if (exportedBytes == null) return;
 
-      if (displayBytes == null) {
-        _showError('No image to export');
-        return;
+      final filename = _filename();
+      if (kIsWeb) {
+        downloadBytes(exportedBytes, filename, _mimeTypeFor(_selectedFormat));
+      } else {
+        await Share.shareXFiles(
+          [
+            XFile.fromData(
+              exportedBytes,
+              name: filename,
+              mimeType: _mimeTypeFor(_selectedFormat),
+            ),
+          ],
+          subject: 'Background Removed Image',
+        );
       }
-
-      final exportedBytes = await ImageProcessingService.exportImage(
-        imageBytes: displayBytes,
-        format: _selectedFormat,
-        quality: _quality,
-      );
-
-      if (exportedBytes == null) {
-        _showError('Failed to export image');
-        return;
-      }
-
-      final extension = _selectedFormat.name;
-      final filename = 'background_removed_${DateTime.now().millisecondsSinceEpoch}.$extension';
-      final path = await StorageService.exportToFile(exportedBytes, filename);
 
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Saved to: $path'),
-            action: SnackBarAction(
-              label: 'Share',
-              onPressed: () => _shareFile(path),
-            ),
+            content: Text(kIsWeb ? 'Download started' : 'Image ready to save'),
           ),
         );
       }
@@ -65,48 +91,23 @@ class _ExportSheetState extends ConsumerState<ExportSheet> {
     }
   }
 
-  Future<void> _shareFile(String path) async {
-    try {
-      await Share.shareXFiles(
-        [XFile(path)],
-        subject: 'Background Removed Image',
-      );
-    } catch (e) {
-      _showError('Failed to share: $e');
-    }
-  }
-
   Future<void> _shareDirectly() async {
     setState(() => _isExporting = true);
 
     try {
-      final editorState = ref.read(editorProvider);
-      final displayBytes = editorState.currentImage.displayBytes;
-
-      if (displayBytes == null) {
-        _showError('No image to share');
-        return;
-      }
-
-      final exportedBytes = await ImageProcessingService.exportImage(
-        imageBytes: displayBytes,
-        format: _selectedFormat,
-        quality: _quality,
-      );
-
-      if (exportedBytes == null) {
-        _showError('Failed to process image');
-        return;
-      }
-
-      final extension = _selectedFormat.name;
-      final filename = 'background_removed_${DateTime.now().millisecondsSinceEpoch}.$extension';
-      final path = await StorageService.exportToFile(exportedBytes, filename);
+      final exportedBytes = await _encodeCurrentImage();
+      if (exportedBytes == null) return;
 
       if (mounted) {
         Navigator.pop(context);
         await Share.shareXFiles(
-          [XFile(path)],
+          [
+            XFile.fromData(
+              exportedBytes,
+              name: _filename(),
+              mimeType: _mimeTypeFor(_selectedFormat),
+            ),
+          ],
           subject: 'Background Removed Image',
         );
       }
@@ -237,9 +238,7 @@ class _ExportSheetState extends ConsumerState<ExportSheet> {
                   child: Text(
                     _selectedFormat == ExportFormat.png
                         ? 'PNG supports transparency'
-                        : _selectedFormat == ExportFormat.jpeg
-                            ? 'JPEG has smaller file size but no transparency'
-                            : 'WebP offers good quality with small file size',
+                        : 'JPEG has a smaller file size but no transparency',
                     style: theme.textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -248,9 +247,9 @@ class _ExportSheetState extends ConsumerState<ExportSheet> {
               ],
             ),
           ),
-          SafeArea(
+          const SafeArea(
             top: false,
-            child: const SizedBox(height: 8),
+            child: SizedBox(height: 8),
           ),
         ],
       ),

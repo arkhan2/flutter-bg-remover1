@@ -1,6 +1,12 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
+import '../../../core/services/storage_service.dart';
+import '../../../models/project.dart';
+import '../../../providers/editor_provider.dart';
 import '../../../providers/gallery_provider.dart';
+import '../../editor/presentation/editor_screen.dart';
 
 class GalleryScreen extends ConsumerStatefulWidget {
   const GalleryScreen({super.key});
@@ -36,11 +42,52 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
             ),
         ],
       ),
-      body: galleryState.isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : galleryState.isEmpty
-              ? _buildEmptyState(context, colorScheme)
-              : _buildGalleryGrid(context, galleryState),
+      body: Column(
+        children: [
+          Material(
+            color: colorScheme.surfaceContainerHighest,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              child: Row(
+                children: [
+                  Icon(Icons.info_outline, size: 18, color: colorScheme.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'This session only. Images stay on this device and are cleared when you close the app.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (galleryState.errorMessage != null)
+            Material(
+              color: colorScheme.errorContainer,
+              child: ListTile(
+                leading: Icon(Icons.error_outline, color: colorScheme.error),
+                title: Text(
+                  galleryState.errorMessage!,
+                  style: TextStyle(color: colorScheme.onErrorContainer),
+                ),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => ref.read(galleryProvider.notifier).clearError(),
+                ),
+              ),
+            ),
+          Expanded(
+            child: galleryState.isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : galleryState.isEmpty
+                    ? _buildEmptyState(context, colorScheme)
+                    : _buildGalleryGrid(context, galleryState),
+          ),
+        ],
+      ),
     );
   }
 
@@ -72,7 +119,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Your edited images will appear here.\nStart by selecting an image from the home screen.',
+              'Edits you save from the editor appear here for this session.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: colorScheme.onSurfaceVariant,
@@ -102,32 +149,41 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
       itemCount: galleryState.projects.length,
       itemBuilder: (context, index) {
         final project = galleryState.projects[index];
-        return _buildProjectCard(context, project);
+        return _buildProjectCard(
+          context,
+          project,
+          galleryState.thumbnails[project.id],
+        );
       },
     );
   }
 
-  Widget _buildProjectCard(BuildContext context, project) {
+  Widget _buildProjectCard(BuildContext context, Project project, Uint8List? thumbnail) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
     return Card(
       clipBehavior: Clip.antiAlias,
       child: InkWell(
-        onTap: () {
-          // TODO: Open project in editor
-        },
+        onTap: () => _openProject(project),
         onLongPress: () => _showProjectOptions(context, project),
         child: Stack(
           fit: StackFit.expand,
           children: [
-            Container(
-              color: colorScheme.surfaceContainerHighest,
-              child: const Icon(
-                Icons.image_outlined,
-                size: 48,
+            if (thumbnail != null)
+              Image.memory(
+                thumbnail,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              )
+            else
+              Container(
+                color: colorScheme.surfaceContainerHighest,
+                child: const Icon(
+                  Icons.image_outlined,
+                  size: 48,
+                ),
               ),
-            ),
             Positioned(
               left: 0,
               right: 0,
@@ -140,7 +196,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
                     end: Alignment.bottomCenter,
                     colors: [
                       Colors.transparent,
-                      Colors.black.withOpacity(0.7),
+                      Colors.black.withValues(alpha: 0.7),
                     ],
                   ),
                 ),
@@ -191,7 +247,74 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
     }
   }
 
-  void _showProjectOptions(BuildContext context, project) {
+  Future<void> _openProject(Project project) async {
+    final original = project.originalImagePath == null
+        ? null
+        : await StorageService.loadImage(project.originalImagePath!);
+    if (original == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open this project')),
+      );
+      return;
+    }
+
+    final processed = project.processedImagePath == null
+        ? null
+        : await StorageService.loadImage(project.processedImagePath!);
+    final display = project.displayImagePath == null
+        ? null
+        : await StorageService.loadImage(project.displayImagePath!);
+
+    ref.read(editorProvider.notifier).loadProject(
+      originalBytes: original,
+      processedBytes: processed,
+      displayBytes: display,
+      backgroundType: project.backgroundType,
+      solidColor: project.solidColorValue == null ? null : Color(project.solidColorValue!),
+      gradientColors: project.gradientColorValues?.map(Color.new).toList(),
+      blurRadius: project.blurRadius,
+    );
+
+    if (!mounted) return;
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(builder: (context) => const EditorScreen()),
+    )
+        .then((_) {
+      if (mounted) {
+        ref.read(editorProvider.notifier).reset();
+      }
+    });
+  }
+
+  Future<void> _shareProject(Project project) async {
+    final key = project.displayImagePath ??
+        project.processedImagePath ??
+        project.originalImagePath;
+    if (key == null) return;
+    final bytes = await StorageService.loadImage(key);
+    if (bytes == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Nothing to share')),
+      );
+      return;
+    }
+
+    await Share.shareXFiles(
+      [
+        XFile.fromData(
+          bytes,
+          name: '${project.name.replaceAll(' ', '_').toLowerCase()}.png',
+          mimeType: 'image/png',
+        ),
+      ],
+      subject: project.name,
+    );
+  }
+
+  void _showProjectOptions(BuildContext context, Project project) {
     showModalBottomSheet(
       context: context,
       builder: (context) => SafeArea(
@@ -203,7 +326,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
               title: const Text('Open'),
               onTap: () {
                 Navigator.pop(context);
-                // TODO: Open in editor
+                _openProject(project);
               },
             ),
             ListTile(
@@ -211,7 +334,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
               title: const Text('Share'),
               onTap: () {
                 Navigator.pop(context);
-                // TODO: Share project
+                _shareProject(project);
               },
             ),
             ListTile(
@@ -234,7 +357,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
     );
   }
 
-  void _confirmDelete(BuildContext context, project) {
+  void _confirmDelete(BuildContext context, Project project) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -266,7 +389,7 @@ class _GalleryScreenState extends ConsumerState<GalleryScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Clear All Projects?'),
         content: const Text(
-          'This will permanently delete all saved projects. This action cannot be undone.',
+          'This will delete all projects saved in this session.',
         ),
         actions: [
           TextButton(

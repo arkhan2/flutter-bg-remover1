@@ -7,6 +7,7 @@ class EditorToolbar extends StatelessWidget {
   final VoidCallback onRemoveBackground;
   final VoidCallback onBackgroundOptions;
   final VoidCallback onExport;
+  final VoidCallback onSaveToGallery;
 
   const EditorToolbar({
     super.key,
@@ -16,6 +17,7 @@ class EditorToolbar extends StatelessWidget {
     required this.onRemoveBackground,
     required this.onBackgroundOptions,
     required this.onExport,
+    required this.onSaveToGallery,
   });
 
   @override
@@ -57,6 +59,17 @@ class EditorToolbar extends StatelessWidget {
                   ),
                 ),
               ),
+            if (hasOriginalImage && !hasProcessedImage) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: isProcessing ? null : onSaveToGallery,
+                  icon: const Icon(Icons.collections_bookmark_outlined),
+                  label: const Text('Save to Gallery'),
+                ),
+              ),
+            ],
             if (hasProcessedImage) ...[
               Row(
                 children: [
@@ -67,7 +80,15 @@ class EditorToolbar extends StatelessWidget {
                       label: const Text('Background'),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: isProcessing ? null : onSaveToGallery,
+                      icon: const Icon(Icons.collections_bookmark_outlined),
+                      label: const Text('Save'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: FilledButton.icon(
                       onPressed: isProcessing ? null : onExport,

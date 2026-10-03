@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/services/background_removal_service.dart';
@@ -38,6 +38,8 @@ class EditorState {
 }
 
 class EditorNotifier extends StateNotifier<EditorState> {
+  static const maxHistory = 20;
+
   EditorNotifier() : super(const EditorState());
 
   void loadImage(Uint8List imageBytes) {
@@ -45,7 +47,40 @@ class EditorNotifier extends StateNotifier<EditorState> {
       originalBytes: imageBytes,
       displayBytes: imageBytes,
     );
-    _addToHistory(newImage);
+    state = EditorState(
+      currentImage: newImage,
+      history: [newImage],
+      historyIndex: 0,
+      canUndo: false,
+      canRedo: false,
+    );
+  }
+
+  void loadProject({
+    required Uint8List originalBytes,
+    Uint8List? processedBytes,
+    Uint8List? displayBytes,
+    BackgroundType backgroundType = BackgroundType.transparent,
+    Color? solidColor,
+    List<Color>? gradientColors,
+    double? blurRadius,
+  }) {
+    final image = EditedImage(
+      originalBytes: originalBytes,
+      processedBytes: processedBytes,
+      displayBytes: displayBytes ?? processedBytes ?? originalBytes,
+      backgroundType: backgroundType,
+      solidColor: solidColor,
+      gradientColors: gradientColors,
+      blurRadius: blurRadius,
+    );
+    state = EditorState(
+      currentImage: image,
+      history: [image],
+      historyIndex: 0,
+      canUndo: false,
+      canRedo: false,
+    );
   }
 
   Future<void> removeBackground() async {
@@ -136,12 +171,19 @@ class EditorNotifier extends StateNotifier<EditorState> {
     }
   }
 
+  @visibleForTesting
+  void addHistoryEntry(EditedImage image) => _addToHistory(image);
+
   void _addToHistory(EditedImage image) {
-    final newHistory = [
+    var newHistory = [
       ...state.history.take(state.historyIndex + 1),
       image,
     ];
-    
+
+    if (newHistory.length > maxHistory) {
+      newHistory = newHistory.sublist(newHistory.length - maxHistory);
+    }
+
     state = state.copyWith(
       currentImage: image,
       history: newHistory,

@@ -1,5 +1,7 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import '../../../providers/editor_provider.dart';
 import '../../editor/presentation/editor_screen.dart';
@@ -28,24 +30,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         imageQuality: 95,
       );
 
-      if (image != null) {
-        final bytes = await image.readAsBytes();
-        ref.read(editorProvider.notifier).loadImage(bytes);
-        
-        if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (context) => const EditorScreen(),
-            ),
-          );
-        }
+      if (image != null && mounted) {
+        _openEditor(await image.readAsBytes());
       }
     } catch (e) {
       if (mounted) {
+        final isCamera = source == ImageSource.camera;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to pick image: $e')),
+          SnackBar(
+            content: Text(
+              isCamera
+                  ? 'Camera is not available here. Choose an image from your files instead.'
+                  : 'Could not open that image. Try a PNG or JPEG from your files.',
+            ),
+          ),
         );
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _openEditor(Uint8List bytes) {
+    ref.read(editorProvider.notifier).loadImage(bytes);
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (context) => const EditorScreen(),
+      ),
+    )
+        .then((_) {
+      if (mounted) {
+        ref.read(editorProvider.notifier).reset();
+      }
+    });
+  }
+
+  Future<void> _loadSampleImage() async {
+    setState(() => _isLoading = true);
+    try {
+      final image = img.Image(width: 320, height: 320, numChannels: 4);
+      img.fill(image, color: img.ColorRgba8(245, 245, 245, 255));
+      for (int y = 60; y < 260; y++) {
+        for (int x = 80; x < 240; x++) {
+          image.setPixelRgba(x, y, 198, 40, 40, 255);
+        }
+      }
+      _openEditor(Uint8List.fromList(img.encodePng(image)));
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -184,7 +217,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Select an image to remove its background automatically. Add solid colors, gradients, or blur effects.',
+                'Select an image to remove a flat background on this device. Photos are not uploaded. The gallery only lasts for this session.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: colorScheme.onSurfaceVariant,
                 ),
@@ -207,6 +240,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: _isLoading ? null : _loadSampleImage,
+                child: const Text('Try a sample image'),
+              ),
             ],
           ),
         ),
@@ -226,7 +264,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         FeatureCard(
           icon: Icons.auto_fix_high,
           title: 'Auto Remove',
-          description: 'AI-powered background removal',
+          description: 'On-device color background removal',
         ),
         FeatureCard(
           icon: Icons.palette_outlined,
@@ -251,7 +289,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         FeatureCard(
           icon: Icons.share_outlined,
           title: 'Export & Share',
-          description: 'Save as PNG, JPEG, or WebP',
+          description: 'Download or share PNG and JPEG',
         ),
       ],
     );

@@ -1,50 +1,119 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/services/color_sampler.dart';
 import '../../../models/edited_image.dart';
 import '../../../providers/editor_provider.dart';
+import '../../../widgets/common/app_color_picker.dart';
+
+enum ColorPickField { solid, gradientStart, gradientEnd }
+
+class BackgroundOptionsDraft {
+  const BackgroundOptionsDraft({
+    required this.type,
+    required this.solidColor,
+    required this.gradientStart,
+    required this.gradientEnd,
+    required this.blurRadius,
+  });
+
+  final BackgroundType type;
+  final Color solidColor;
+  final Color gradientStart;
+  final Color gradientEnd;
+  final double blurRadius;
+
+  BackgroundOptionsDraft copyWith({
+    BackgroundType? type,
+    Color? solidColor,
+    Color? gradientStart,
+    Color? gradientEnd,
+    double? blurRadius,
+  }) {
+    return BackgroundOptionsDraft(
+      type: type ?? this.type,
+      solidColor: solidColor ?? this.solidColor,
+      gradientStart: gradientStart ?? this.gradientStart,
+      gradientEnd: gradientEnd ?? this.gradientEnd,
+      blurRadius: blurRadius ?? this.blurRadius,
+    );
+  }
+
+  BackgroundOptionsDraft withPickedColor(ColorPickField field, Color color) {
+    switch (field) {
+      case ColorPickField.solid:
+        return copyWith(solidColor: color);
+      case ColorPickField.gradientStart:
+        return copyWith(gradientStart: color);
+      case ColorPickField.gradientEnd:
+        return copyWith(gradientEnd: color);
+    }
+  }
+}
 
 class BackgroundOptionsSheet extends ConsumerStatefulWidget {
-  const BackgroundOptionsSheet({super.key});
+  const BackgroundOptionsSheet({
+    super.key,
+    this.draft,
+    this.onPickFromImage,
+  });
+
+  final BackgroundOptionsDraft? draft;
+  final void Function(ColorPickField field, BackgroundOptionsDraft draft)? onPickFromImage;
 
   @override
   ConsumerState<BackgroundOptionsSheet> createState() => _BackgroundOptionsSheetState();
 }
 
 class _BackgroundOptionsSheetState extends ConsumerState<BackgroundOptionsSheet> {
-  BackgroundType _selectedType = BackgroundType.transparent;
-  Color _solidColor = Colors.white;
-  Color _gradientStartColor = const Color(0xFF6366F1);
-  Color _gradientEndColor = const Color(0xFF8B5CF6);
-  double _blurRadius = 20.0;
+  late BackgroundType _selectedType;
+  late Color _solidColor;
+  late Color _gradientStartColor;
+  late Color _gradientEndColor;
+  late double _blurRadius;
 
   @override
   void initState() {
     super.initState();
+    final draft = widget.draft;
+    if (draft != null) {
+      _selectedType = draft.type;
+      _solidColor = draft.solidColor;
+      _gradientStartColor = draft.gradientStart;
+      _gradientEndColor = draft.gradientEnd;
+      _blurRadius = draft.blurRadius;
+      return;
+    }
+
     final currentImage = ref.read(editorProvider).currentImage;
     _selectedType = currentImage.backgroundType;
-    if (currentImage.solidColor != null) {
-      _solidColor = currentImage.solidColor!;
-    }
+    _solidColor = currentImage.solidColor ?? Colors.white;
     if (currentImage.gradientColors != null && currentImage.gradientColors!.length >= 2) {
       _gradientStartColor = currentImage.gradientColors![0];
       _gradientEndColor = currentImage.gradientColors![1];
+    } else {
+      _gradientStartColor = const Color(0xFF6366F1);
+      _gradientEndColor = const Color(0xFF8B5CF6);
     }
-    if (currentImage.blurRadius != null) {
-      _blurRadius = currentImage.blurRadius!;
-    }
+    _blurRadius = currentImage.blurRadius ?? 20.0;
+  }
+
+  BackgroundOptionsDraft _currentDraft() {
+    return BackgroundOptionsDraft(
+      type: _selectedType,
+      solidColor: _solidColor,
+      gradientStart: _gradientStartColor,
+      gradientEnd: _gradientEndColor,
+      blurRadius: _blurRadius,
+    );
   }
 
   void _applyBackground() {
-    final notifier = ref.read(editorProvider.notifier);
-    
-    notifier.applyBackground(
+    ref.read(editorProvider.notifier).applyBackground(
       type: _selectedType,
       solidColor: _solidColor,
       gradientColors: [_gradientStartColor, _gradientEndColor],
       blurRadius: _blurRadius,
     );
-    
     Navigator.pop(context);
   }
 
@@ -86,9 +155,11 @@ class _BackgroundOptionsSheetState extends ConsumerState<BackgroundOptionsSheet>
                     style: theme.textTheme.titleSmall,
                   ),
                   const SizedBox(height: 12),
-                  _buildColorPicker(_solidColor, (color) {
-                    setState(() => _solidColor = color);
-                  }),
+                  _buildColorPicker(
+                    _solidColor,
+                    ColorPickField.solid,
+                    (color) => setState(() => _solidColor = color),
+                  ),
                 ],
                 if (_selectedType == BackgroundType.gradient) ...[
                   Text(
@@ -96,18 +167,22 @@ class _BackgroundOptionsSheetState extends ConsumerState<BackgroundOptionsSheet>
                     style: theme.textTheme.titleSmall,
                   ),
                   const SizedBox(height: 12),
-                  _buildColorPicker(_gradientStartColor, (color) {
-                    setState(() => _gradientStartColor = color);
-                  }),
+                  _buildColorPicker(
+                    _gradientStartColor,
+                    ColorPickField.gradientStart,
+                    (color) => setState(() => _gradientStartColor = color),
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     'End Color',
                     style: theme.textTheme.titleSmall,
                   ),
                   const SizedBox(height: 12),
-                  _buildColorPicker(_gradientEndColor, (color) {
-                    setState(() => _gradientEndColor = color);
-                  }),
+                  _buildColorPicker(
+                    _gradientEndColor,
+                    ColorPickField.gradientEnd,
+                    (color) => setState(() => _gradientEndColor = color),
+                  ),
                   const SizedBox(height: 16),
                   _buildGradientPreview(),
                 ],
@@ -203,9 +278,13 @@ class _BackgroundOptionsSheetState extends ConsumerState<BackgroundOptionsSheet>
     );
   }
 
-  Widget _buildColorPicker(Color currentColor, ValueChanged<Color> onColorChanged) {
+  Widget _buildColorPicker(
+    Color currentColor,
+    ColorPickField field,
+    ValueChanged<Color> onColorChanged,
+  ) {
     return InkWell(
-      onTap: () => _showColorPickerDialog(currentColor, onColorChanged),
+      onTap: () => _showColorPickerDialog(currentColor, field, onColorChanged),
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.all(12),
@@ -230,11 +309,11 @@ class _BackgroundOptionsSheetState extends ConsumerState<BackgroundOptionsSheet>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '#${currentColor.value.toRadixString(16).padLeft(8, '0').substring(2).toUpperCase()}',
+                    colorToHex(currentColor),
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   Text(
-                    'Tap to change',
+                    'Tap to change or pick from image',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -263,31 +342,40 @@ class _BackgroundOptionsSheetState extends ConsumerState<BackgroundOptionsSheet>
     );
   }
 
-  void _showColorPickerDialog(Color currentColor, ValueChanged<Color> onColorChanged) {
-    Color pickerColor = currentColor;
-    
+  void _showColorPickerDialog(
+    Color currentColor,
+    ColorPickField field,
+    ValueChanged<Color> onColorChanged,
+  ) {
+    var pickerColor = currentColor;
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Pick a color'),
-        content: SingleChildScrollView(
-          child: ColorPicker(
-            pickerColor: pickerColor,
-            onColorChanged: (color) => pickerColor = color,
-            enableAlpha: false,
-            displayThumbColor: true,
-            pickerAreaHeightPercent: 0.7,
+        content: SizedBox(
+          width: 320,
+          child: AppColorPicker(
+            color: currentColor,
+            onChanged: (color) => pickerColor = color,
+            onPickFromImage: widget.onPickFromImage == null
+                ? null
+                : () {
+                    Navigator.pop(dialogContext);
+                    Navigator.pop(context);
+                    widget.onPickFromImage!(field, _currentDraft());
+                  },
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () {
               onColorChanged(pickerColor);
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
             },
             child: const Text('Select'),
           ),
